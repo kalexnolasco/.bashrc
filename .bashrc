@@ -9,6 +9,7 @@
 #                   ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝
 #
 #                  https://github.com/kalexnolasco
+#                  https://github.com/kalexnolasco/.bashrc/
 #
 ###########################################################################
 # Colores para la terminal
@@ -26,8 +27,7 @@ COLOR_WHITE='\033[0;37m'
 COLOR_GRAY='\033[0;90m'
 COLOR_END='\033[0m'
 
-# If not running interactively, don't do anything
-# Si no se está ejecutando de forma interactiva, no haga nada
+# If not running interactively, don't do anything(Si no se está ejecutando de forma interactiva, no haga nada)
 # shell iterativo: el shell muestra un indicador de shell y espera a que el usuario escriba un comando.
 # shell no interactivo: el shell no muestra un indicador de shell y ejecuta un script.
 case $- in
