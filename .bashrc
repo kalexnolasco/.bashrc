@@ -9,7 +9,7 @@
 #                   ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝
 #
 #                  https://github.com/kalexnolasco
-#                  https://github.com/kalexnolasco/.bashrc/
+#                  https://github.com/kalexnolasco/bashrc/
 #
 ###########################################################################
 # Colores para la terminal
