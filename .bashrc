@@ -31,8 +31,8 @@ COLOR_END='\033[0m'
 # shell iterativo: el shell muestra un indicador de shell y espera a que el usuario escriba un comando.
 # shell no interactivo: el shell no muestra un indicador de shell y ejecuta un script.
 case $- in
-*i*) ;;
-*) return ;;
+ *i*) ;;
+   *) return ;;
 esac
 
 # HISTCONTROL: lista de valores separados por dos puntos que controlan cómo se guardan los comandos en la lista del historial.
@@ -71,6 +71,7 @@ shopt -s checkwinsize
 # make less more friendly for non-text input files, see lesspipe(1)
 [ -x /usr/bin/lesspipe ] && eval "$(SHELL=/bin/sh lesspipe)"
 
+
 #############################################
 ####FUNCUINES DE AYUDA PARA LA TERMINAL######
 function find_largest_files() {
@@ -88,12 +89,6 @@ function find_largest_directories() {
   # 20 largest
   find "${PWD}" -type d -not -path '*/.*' -exec du -Sh {} + | sort -rh | head -n 20
 }
-
-function __fzf_select__() {
-  local cmd="${1:-vim}"
-  local file=$(fzf --height 50% --border --ansi --reverse --preview "bat --color=always --style=numbers --line-range :500 {}" --preview-window=right:70%:wrap --bind "ctrl-m:execute($cmd {})+abort")
-  echo "$file"
-}
 ####FUNCUINES DE AYUDA PARA LA TERMINAL######
 #############################################
 
@@ -101,21 +96,37 @@ function __fzf_select__() {
 ####FUNCUINES DE AYUDA PARA GIT##############
 
 # Lista de paquetes necesarios para el funcionamiento de las funciones de ayuda para git
-PACKAGES=(git git-extras git-flow git-lfs fzf)
+PACKAGES=(git fzf)
+MISSING_PACKAGES=()
 for p in "${PACKAGES[@]}"; do
   if ! dpkg -s "$p" >/dev/null 2>&1;
    then
-    echo -e "#############################################"
-    echo -e "Please install ${COLOR_LIGHT_BLUE}$p${COLOR_END} package -> ${COLOR_LIGHT_YELLOW}sudo apt install $p${COLOR_END}"
-    echo -e "#############################################"
-    echo -e ""
+    MISSING_PACKAGES+=("$p")
   fi
 done
+if [ ${#MISSING_PACKAGES[@]} -gt 0 ];
+then
+  packages=$(printf " %s" "${MISSING_PACKAGES[@]}")
+  echo -e "#############################################"
+  echo -e "Please install ${COLOR_LIGHT_BLUE}$packages${COLOR_END} package -> ${COLOR_LIGHT_YELLOW}sudo apt install $packages${COLOR_END}"
+  echo -e "#############################################"
+  echo -e ""
+fi
 
 
-function git_status() {
+function __git_status() {
   # git status complete
   git status --untracked-files=all -v --show-stash --ahead-behind --find-renames --branch
+}
+
+function __git_current_branch() {
+  # show current branch
+  git rev-parse --abbrev-ref HEAD
+}
+
+function __git_all_branches() {
+  # show all branches
+  git branch -a | grep -v HEAD | cut -d'*' -f2- | sed -e 's/^[[:space:]]*//' | sed -e 's/[[:space:]]*$//'
 }
 
 function git_log() {
@@ -123,19 +134,9 @@ function git_log() {
   git log --graph --abbrev-commit --decorate --date=relative --format=format:'%C(bold blue)%h%C(reset) - %C(bold green)(%ar)%C(reset) %C(white)%s%C(reset) %C(dim white)- %an%C(reset)%C(auto)%d%C(reset)' --all
 }
 
-function git_current_branch() {
-  # show current branch
-  git branch --show-current
-}
-
 function git_branch() {
   # show current branch with information
   git branch -vva
-}
-
-function git_all_branches() {
-  # show all branches
-  git branch -a | grep -v HEAD | cut -d'*' -f2- | sed -e 's/^[[:space:]]*//' | sed -e 's/[[:space:]]*$//'
 }
 
 function git_tags() {
@@ -147,39 +148,15 @@ function git_checkout_branch() {
   # Check if git status is clean
   if [[ -z $(git status --porcelain) ]];
   then
-    # get all branches
-    local all_branches=$(git_all_branches)
-    local new_branch=$(echo "$all_branches" | fzf --multi \
-                                                  --height=50% \
-                                                  --margin=5%,2%,2%,5% \
-                                                  --layout=reverse-list \
-                                                  --border=rounded \
-                                                  --info=inline \
-                                                  --prompt='Select->' \
-                                                  --pointer='→' \
-                                                  --marker='♡' \
-                                                  --header='CTRL-C or ESC to quit' \
-                                                  --color='dark,fg:#FF00FF')
-    local new_branch=$(git branch -a | grep -v HEAD | sed -e 's/^[[:space:]]*//' | sed -e 's/[[:space:]]*$//' | fzf --multi \
-                                                                                                                    --height=50% \
-                                                                                                                    --margin=5%,2%,2%,5% \
-                                                                                                                    --layout=reverse-list \
-                                                                                                                    --border=rounded \
-                                                                                                                    --info=inline \
-                                                                                                                    --prompt='Select->' \
-                                                                                                                    --pointer='→' \
-                                                                                                                    --marker='♡' \
-                                                                                                                    --header='CTRL-C or ESC to quit' \
-                                                                                                                    --color='dark,fg:#FF00FF')
+    local current_branch=$(__git_current_branch)
+    local new_branch=$(__git_all_branches | fzf --multi --height=90% --margin=5%,2%,2%,5% --reverse --black)
     # remove remote/origin
     new_branch=$(echo "$new_branch" | sed -e 's/^remotes\/origin\///')
-
-    # if new_branch is empty or starts with a *
-    if [[ -z "$new_branch" ]] || [[ "$new_branch" == \** ]];
+    # if current_branch is empty or equal to new_branch return
+    if [[ -z "$new_branch" ]] || [[ "$current_branch" == "$new_branch" ]];
     then
       return
     fi
-
     # check if branch exists in local
     if [[ -z $(git branch --list "$new_branch") ]];
     then
@@ -193,105 +170,65 @@ function git_checkout_branch() {
         git checkout -b "$new_branch" "origin/$new_branch"
       fi
     else
-      # checkout branch
+      # checkout branch from local
       git checkout "$new_branch"
     fi
   else
     echo -e "${COLOR_RED}Git status is not clean${COLOR_END}"
-    git_status
-  fi
-}
-
-
-
-
-function git_checkout() {
-  # Checkout if git status is clean
-  if [[ -z $(git status --porcelain) ]]; then
-    local new_branch=$(git branch -a | grep -v HEAD | sed -e 's/^[[:space:]]*//' | sed -e 's/[[:space:]]*$//' | fzf --multi \
-                                                                                                                    --height=50% \
-                                                                                                                    --margin=5%,2%,2%,5% \
-                                                                                                                    --layout=reverse-list \
-                                                                                                                    --border=rounded \
-                                                                                                                    --info=inline \
-                                                                                                                    --prompt='Select->' \
-                                                                                                                    --pointer='→' \
-                                                                                                                    --marker='♡' \
-                                                                                                                    --header='CTRL-C or ESC to quit' \
-                                                                                                                    --color='dark,fg:#FF00FF')
-    # remove remote/origin
-    new_branch=$(echo "$new_branch" | sed -e 's/^remotes\/origin\///')
-
-    # if new_branch is empty or starts with a *
-    if [[ -z "$new_branch" ]] || [[ "$new_branch" == \** ]]; then
-      return
-    fi
-
-    # check if branch exists in local
-    if [[ -z $(git branch --list "$new_branch") ]]; then
-      # check if branch exists in remote
-      if [[ -z $(git ls-remote --heads origin "$new_branch") ]]; then
-        echo -e "${COLOR_YELLOW}Branch${COLOR_END}:[${COLOR_BLUE}${new_branch}${COLOR_END}] ${COLOR_RED}[Branch does not exist on remote]${COLOR_END}\n"
-        return
-      fi
-      git checkout -b "$new_branch" "origin/$new_branch"
-    else
-      git checkout "$new_branch"
-    fi
-  else
-    echo "Git status is not clean. Please commit or stash your changes."
+    __git_status
   fi
 }
 
 function git_checkout_tag() {
   # Checkout if git status is clean
   if [[ -z $(git status --porcelain) ]]; then
-    local new_tag=$(git tag | fzf --multi \
-                                  --height=50% \
-                                  --margin=5%,2%,2%,5% \
-                                  --layout=reverse-list \
-                                  --border=rounded \
-                                  --info=inline \
-                                  --prompt='Select->' \
-                                  --pointer='→' \
-                                  --marker='♡' \
-                                  --header='CTRL-C or ESC to quit' \
-                                  --color='dark,fg:#FF00FF')
-    # if new_tag is empty
-    if [[ -z "$new_tag" ]]; then
+    local current_branch=$(__git_current_branch)
+    local new_tag
+    new_tag=$(git_tags | fzf --multi --height=90% --margin=5%,2%,2%,5% --reverse --black)
+    # if current_branch is empty or equal to new_tag return
+    if [[ -z "$new_tag" ]] || [[ "$current_branch" == "$new_tag" ]];
+    then
       return
     fi
-    git checkout "$new_tag"
+    # check if branch exists in local
+    if [[ -z $(git tag -l "$new_tag") ]]; then
+      # check if branch exists in remote
+      if [[ -z $(git ls-remote --tags origin "$new_tag") ]]; then
+        echo -e "${COLOR_YELLOW}Tag${COLOR_END}:[${COLOR_RED}$new_tag${COLOR_END}]${COLOR_YELLOW} does not exist in remote${COLOR_END}"
+        return
+      else
+        # git checkout specific tag
+        git checkout tags/"$new_tag"
+      fi
+    else
+      # checkout branch from local
+      git checkout "$new_tag"
+    fi
   else
     echo "Git status is not clean. Please commit or stash your changes."
   fi
 }
 
-
-
-#function git_current_branch() {
-#  # Get current branch
-#  git branch | grep \* | cut -d ' ' -f2
-#}
-
 function git_pull() {
   git config --global advice.statusHints false
   if [[ -z $(git status --porcelain) ]]; then
-    local current_branch=$(git_current_branch)
+    local current_branch=$(__git_current_branch)
     echo -e "Current ${COLOR_YELLOW}Branch${COLOR_END}:[${COLOR_BLUE}${current_branch}${COLOR_END}]\n"
-    for branch in $(git for-each-ref --format='%(refname:short)' refs/heads/); do
+    local local_branch
+    for local_branch in $(git for-each-ref --format='%(refname:short)' refs/heads/); do
       # check if branch exists on remote
-      if [[ -z $(git ls-remote --heads origin "$branch") ]]; then
-        echo -e "${COLOR_YELLOW}Branch${COLOR_END}:[${COLOR_BLUE}${branch}${COLOR_END}] ${COLOR_RED}[Branch does not exist on remote]${COLOR_END}\n"
+      if [[ -z $(git ls-remote --heads origin "$local_branch") ]]; then
+        echo -e "${COLOR_YELLOW}Branch${COLOR_END}:[${COLOR_BLUE}${local_branch}${COLOR_END}] ${COLOR_RED}[Branch does not exist on remote]${COLOR_END}\n"
         continue
       fi
-      git checkout $branch >/dev/null 2>&1
-      echo -e "${COLOR_YELLOW}Branch${COLOR_END}:[${COLOR_BLUE}${branch}${COLOR_END}] [${COLOR_GREEN}Pulling...${COLOR_END}]"
+      git checkout "${local_branch}" >/dev/null 2>&1
+      echo -e "${COLOR_YELLOW}Branch${COLOR_END}:[${COLOR_BLUE}${local_branch}${COLOR_END}] [${COLOR_GREEN}Pulling...${COLOR_END}]"
       git pull --summary --ff-only
-      if [[ $? -ne 0 ]]; then
-        echo -e "${COLOR_YELLOW}Branch${COLOR_END}:[${COLOR_BLUE}${branch}${COLOR_END}] [${COLOR_RED}Failed to pull${COLOR_END}]\n"
+      local exit_code=$?
+      if [[ ${exit_code} -ne 0 ]]; then
+        echo -e "${COLOR_YELLOW}Branch${COLOR_END}:[${COLOR_BLUE}${local_branch}${COLOR_END}] [${COLOR_RED}Failed to pull${COLOR_END}]\n"
       else
-        echo -e "${COLOR_YELLOW}Branch${COLOR_END}:[${COLOR_BLUE}${branch}${COLOR_END}] [${COLOR_GREEN}Successfully pulled${COLOR_END}]\n"
+        echo -e "${COLOR_YELLOW}Branch${COLOR_END}:[${COLOR_BLUE}${local_branch}${COLOR_END}] [${COLOR_GREEN}Successfully pulled${COLOR_END}]\n"
       fi
     done
     git checkout "$current_branch" >/dev/null 2>&1
@@ -304,24 +241,14 @@ function git_pull() {
 
 function git_stash() {
   # git stash with message
-  local current_branch=$(git_current_branch)
+  local current_branch=$(__git_current_branch)
   local stash_name="$current_branch($(date +'%Y-%m-%d-%H:%M:%S'))"
   git stash save "$stash_name"
 }
 
 function git_stash_pop() {
   # git stash pop with fzf
-  git stash list | fzf --multi \
-                       --height=50% \
-                       --margin=5%,2%,2%,5% \
-                       --layout=reverse-list \
-                       --border=rounded \
-                       --info=inline \
-                       --prompt='Select->' \
-                       --pointer='→' \
-                       --marker='♡' \
-                       --header='CTRL-C or ESC to quit' \
-                       --color='dark,fg:#FF00FF'| cut -d ':' -f1 | xargs git stash pop
+  git stash list | fzf --multi --height=90% --margin=5%,2%,2%,5% --reverse --black | cut -d ':' -f1 | xargs git stash pop
 }
 
 # INI COLORS
@@ -342,24 +269,28 @@ if [ -x "$(command -v git)" ]; then
   export GIT_PS1_SHOWSTASHSTATE='y'
   export GIT_PS1_SHOWUNTRACKEDFILES='y'
   export GIT_PS1_DESCRIBE_STYLE='contains'
-  export GIT_PS1_SHOWUPSTREAM='auto'
+  export GIT_PS1_SHOWUPSTREAM='verbose'
 
   # PS1 with git branch
-  PS1="${PS1_COLOR_GREEN}\u${PS1_COLOR_END}@${PS1_COLOR_GREEN}\h${PS1_COLOR_END}:${PS1_COLOR_BLUE}\w${PS1_COLOR_END}${PS1_COLOR_GREEN}\$(__git_ps1 \" (%s)\")${PS1_COLOR_END}\$ "
+  PS1="${PS1_COLOR_GREEN}\u${PS1_COLOR_END}@${PS1_COLOR_GREEN}\h${PS1_COLOR_END}:${PS1_COLOR_WHITE}\w${PS1_COLOR_END}${PS1_COLOR_GREEN}\$(__git_ps1 \"(%s)\")${PS1_COLOR_END}\$ "
 else
   # PS1 without git branch
-  PS1="${PS1_COLOR_GREEN}\u${PS1_COLOR_END}@${PS1_COLOR_GREEN}\h${PS1_COLOR_END}:${PS1_COLOR_BLUE}\w${PS1_COLOR_END}\$ "
+  PS1="${PS1_COLOR_GREEN}\u${PS1_COLOR_END}@${PS1_COLOR_GREEN}\h${PS1_COLOR_END}:${PS1_COLOR_WHITE}\w${PS1_COLOR_END}\$ "
 fi
 
 # INI ALIAS
 ## LS
 alias ls='ls --color'
-LS_COLORS='di=1;34:fi=0;97:ln=1;34;101:pi=5:so=5:bd=5:cd=5:or=31:mi=0:ex=31:*.yml=1;91:*.ini=1;33'
+LS_COLORS='di=1;34:fi=0;97:ln=1;34;101:pi=5:so=5:bd=5:cd=5:or=31:mi=0:ex=0;32:*.yml=0;91:*.ini=0;33:*.py=0;93'
 export LS_COLORS
 ## GREP-EGREP-FGREP
 alias grep='grep --color=always'
 alias egrep='egrep --color=always'
 alias fgrep='fgrep --color=always'
+# load extra aliases if exists
+if [ -f ~/.bash_aliases ]; then
+  . ~/.bash_aliases
+fi
 # END ALIAS
 
 # enable programmable completion features (you don't need to enable
@@ -373,22 +304,4 @@ if ! shopt -oq posix; then
   fi
 fi
 
-# >>> conda initialize >>>
-# !! Contents within this block are managed by 'conda init' !!
-__conda_setup="$('/opt/wenv/python/bin/conda' 'shell.bash' 'hook' 2>/dev/null)"
-if [ $? -eq 0 ]; then
-  eval "$__conda_setup"
-else
-  if [ -f "/opt/wenv/python/etc/profile.d/conda.sh" ]; then
-    . "/opt/wenv/python/etc/profile.d/conda.sh"
-  else
-    export PATH="/opt/wenv/python/bin:$PATH"
-  fi
-fi
-unset __conda_setup
-# <<< conda initialize <<<
 
-export JAVA_HOME=$HOME/opt/java
-export PATH=$PATH:$JAVA_HOME/bin
-export HADOOP_HOME=$HOME/opt/hadoop
-export PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
